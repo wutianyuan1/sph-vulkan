@@ -20,10 +20,11 @@ pub struct App {
     data: AppData,
     device: Device,
     frame: usize,
+    resized: bool,
 }
 
 impl App {
-    /// Creates our Vulkan app.
+    /// Creates the app instance.
     pub unsafe fn create(window: &Window) -> Result<Self> {
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
@@ -40,15 +41,20 @@ impl App {
         create_command_pool(&instance, &device, &mut data)?;
         create_command_buffers(&device, &mut data)?;
         create_sync_objects(&device, &mut data)?;
-        Ok(Self { entry: entry, instance: instance, data: data, device: device, frame: 0 })
+        Ok(Self { entry, instance, data, device, frame: 0, resized: false })
     }
 
-    /// Renders a frame for our Vulkan app.
+    /// Renders a frame for the app.
     pub unsafe fn render(&mut self, window: &Window) -> Result<()> {
         // wait and reset fences for GPU-CPU sync
         let in_flight_fence = self.data.in_flight_fences[self.frame];
-        let image_index = self.device.acquire_next_image_khr(
-            self.data.swapchain, u64::MAX, self.data.image_available_semaphores[self.frame], vk::Fence::null())?.0 as usize;
+        let result = self.device.acquire_next_image_khr(
+            self.data.swapchain, u64::MAX, self.data.image_available_semaphores[self.frame], vk::Fence::null());
+        let image_index = match result {
+            Ok((image_index, _)) => image_index as usize,
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(window),
+            Err(e) => return Err(anyhow!(e)),
+        };
         self.device.wait_for_fences(&[in_flight_fence], true, u64::max_value())?;
         // wait for image fence
         let image_in_flight = self.data.images_in_flight[image_index];
@@ -77,36 +83,67 @@ impl App {
             .wait_semaphores(signal_semaphores)
             .swapchains(swapchains)
             .image_indices(image_indices);
-        self.device.queue_present_khr(self.data.present_queue, &present_info)?;
+        let result = self.device.queue_present_khr(self.data.present_queue, &present_info);
+        let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR) || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
+        if changed {
+            self.recreate_swapchain(window)?;
+        } else if let Err(e) = result {
+            return Err(anyhow!(e));
+        }
         self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
         Ok(())
     }
 
-    /// Destroys our Vulkan app.
+    /// Destroys the app.
     #[rustfmt::skip]
     pub unsafe fn destroy(&mut self) {
+        self.destroy_swapchain();
         self.data.in_flight_fences.iter().for_each(|f| self.device.destroy_fence(*f, None));
         self.data.render_finished_semaphores.iter().for_each(|s| self.device.destroy_semaphore(*s, None));
         self.data.image_available_semaphores.iter().for_each(|s| self.device.destroy_semaphore(*s, None));
         self.device.destroy_command_pool(self.data.command_pool, None);
-        self.data.framebuffers.iter().for_each(|f| self.device.destroy_framebuffer(*f, None));
-        self.device.destroy_pipeline(self.data.pipeline, None);
-        self.device.destroy_pipeline_layout(self.data.pipeline_layout, None);
-        self.device.destroy_render_pass(self.data.render_pass, None);
-        self.data.swapchain_image_views.iter()
-            .for_each(|img| {self.device.destroy_image_view(*img, None)});
-        self.device.destroy_swapchain_khr(self.data.swapchain, None);
         self.device.destroy_device(None);
+        self.instance.destroy_surface_khr(self.data.surface, None);
         if VALIDATION_ENABLED {
             self.instance.destroy_debug_utils_messenger_ext(self.data.messenger, None);
         }
-        self.instance.destroy_surface_khr(self.data.surface, None);
         self.instance.destroy_instance(None);
     }
 
-    /// accessors
+    unsafe fn destroy_swapchain(&mut self) {
+        self.data.framebuffers.iter().for_each(|f| self.device.destroy_framebuffer(*f, None));
+        self.device.free_command_buffers(self.data.command_pool, &self.data.command_buffers);
+        self.device.destroy_pipeline(self.data.pipeline, None);
+        self.device.destroy_pipeline_layout(self.data.pipeline_layout, None);
+        self.device.destroy_render_pass(self.data.render_pass, None);
+        self.data.swapchain_image_views.iter().for_each(|v| self.device.destroy_image_view(*v, None));
+        self.device.destroy_swapchain_khr(self.data.swapchain, None);
+    }
+
+    pub unsafe fn recreate_swapchain(&mut self, window: &Window) -> Result<()> {
+        self.device.device_wait_idle()?;
+        self.destroy_swapchain();
+        create_swapchain(window, &self.instance, &self.device, &mut self.data)?;
+        create_swapchain_image_views(&self.device, &mut self.data)?;
+        create_render_pass(&self.instance, &self.device, &mut self.data)?;
+        create_pipeline(&self.device, &mut self.data)?;
+        create_framebuffers(&self.device, &mut self.data)?;
+        create_command_buffers(&self.device, &mut self.data)?;
+        self.data.images_in_flight.resize(self.data.swapchain_images.len(), vk::Fence::null());
+        Ok(())
+    }    
+
+    /// accessors & modifiers
     pub fn device(&mut self) -> &Device {
         &self.device
+    }
+
+    pub fn data(&mut self) -> &AppData {
+        &self.data
+    }
+
+    pub fn resized(&mut self, newval: bool) {
+        self.resized = newval;
     }
 }
 
@@ -134,9 +171,12 @@ unsafe fn create_instance(window: &Window, entry: &Entry, data: &mut AppData) ->
 
     // Extensions
     let mut extensions = vk_window::get_required_instance_extensions(window).iter().map(|e| e.as_ptr()).collect::<Vec<_>>();
-    extensions.push(vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name.as_ptr());
-    extensions.push(ExtensionName::from_bytes(b"VK_KHR_get_physical_device_properties2").as_ptr());
 
+    if cfg!(target_os = "macos") {
+        extensions.push(vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name.as_ptr());
+        extensions.push(ExtensionName::from_bytes(b"VK_KHR_get_physical_device_properties2").as_ptr());    
+    }
+   
     if VALIDATION_ENABLED {
         extensions.push(vk::EXT_DEBUG_UTILS_EXTENSION.name.as_ptr());
     }

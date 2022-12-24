@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use vulkanalia::vk::{ExtDebugUtilsExtension, KhrSurfaceExtension, InstanceCreateFlags, ExtensionName};
+use vulkanalia::vk::{ExtDebugUtilsExtension, KhrSurfaceExtension, InstanceCreateFlags, ExtensionName, KhrSwapchainExtension};
 use vulkanalia::window as vk_window;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
@@ -9,7 +9,7 @@ use winit::window::Window;
 use crate::appdata::AppData;
 use crate::callback::debug_callback;
 use crate::config::{VALIDATION_ENABLED, VALIDATION_LAYER};
-use crate::utils::{pick_physical_device, create_logical_device};
+use crate::utils::{pick_physical_device, create_logical_device, create_swapchain};
 
 /// Our Vulkan app.
 #[derive(Clone, Debug)]
@@ -30,6 +30,7 @@ impl App {
         data.surface = vk_window::create_surface(&instance, window)?;
         pick_physical_device(&instance, &mut data)?;
         let device = create_logical_device(&instance, &mut data)?;
+        create_swapchain(window, &instance, &device, &mut data)?;
         Ok(Self { entry, instance, data, device })
     }
 
@@ -41,6 +42,7 @@ impl App {
     /// Destroys our Vulkan app.
     #[rustfmt::skip]
     pub unsafe fn destroy(&mut self) {
+        self.device.destroy_swapchain_khr(self.data.swapchain, None);
         self.device.destroy_device(None);
         if VALIDATION_ENABLED {
             self.instance.destroy_debug_utils_messenger_ext(self.data.messenger, None);

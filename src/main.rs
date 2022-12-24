@@ -10,6 +10,7 @@ use winit::dpi::LogicalSize;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
+use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
 
@@ -38,6 +39,7 @@ fn main() -> Result<()> {
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 destroying = true;
                 *control_flow = ControlFlow::Exit;
+                unsafe { app.device().device_wait_idle().unwrap(); }
                 unsafe { app.destroy(); }
             }
             _ => {}

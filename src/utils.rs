@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result, Ok};
 use log::*;
 use std::collections::HashSet;
-use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension};
+use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension, ShaderModule};
 use vulkanalia::{prelude::v1_0::*, vk::PhysicalDevice};
 use thiserror::Error;
 use winit::window::Window;
@@ -205,5 +205,229 @@ pub unsafe fn create_swapchain(window: &Window, instance: &Instance, device: &De
     data.swapchain_images = device.get_swapchain_images_khr(data.swapchain)?;
     data.swapchain_format = surface_format.format;
     data.swapchain_extent = extent;
+    Ok(())
+}
+
+pub unsafe fn create_swapchain_image_views(device: &Device, data: &mut AppData) -> Result<()> {
+    data.swapchain_image_views = data.swapchain_images.iter()
+        .map(|i| {
+            let components = vk::ComponentMapping::builder()
+                .r(vk::ComponentSwizzle::IDENTITY)
+                .g(vk::ComponentSwizzle::IDENTITY)
+                .b(vk::ComponentSwizzle::IDENTITY)
+                .a(vk::ComponentSwizzle::IDENTITY);
+            let subresource_range = vk::ImageSubresourceRange::builder()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .base_mip_level(0)
+                .level_count(1)
+                .base_array_layer(0)
+                .layer_count(1);
+            let info = vk::ImageViewCreateInfo::builder()
+                .image(*i)
+                .view_type(vk::ImageViewType::_2D)
+                .format(data.swapchain_format)
+                .components(components)
+                .subresource_range(subresource_range);
+            device.create_image_view(&info, None)
+        })
+        .collect::<Result<Vec<_>, _> >()?;
+    Ok(())
+}
+
+/// Pipeline helpers
+pub unsafe fn create_pipeline(device: &Device, data: &mut AppData) -> Result<()> {
+    let vshader = include_bytes!("../shaders/vert.spv");
+    let fshader = include_bytes!("../shaders/frag.spv");
+    let vert_shader_module = create_shader_module(device, &vshader[..])?;
+    let frag_shader_module = create_shader_module(device, &fshader[..])?;
+    let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::VERTEX)
+        .module(vert_shader_module)
+        .name(b"main\0");
+    let frag_stage = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::FRAGMENT)
+        .module(frag_shader_module)
+        .name(b"main\0");
+    let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder();
+    let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .primitive_restart_enable(false);
+    let viewport = vk::Viewport::builder().x(0.0).y(0.0)
+        .width(data.swapchain_extent.width as f32).height(data.swapchain_extent.height as f32)
+        .min_depth(0.0).max_depth(1.0);
+    let scissor = vk::Rect2D::builder().offset(vk::Offset2D{x: 0, y: 0}).extent(data.swapchain_extent);
+    let (viewports,  scissors) = (&[viewport], &[scissor]);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::builder().viewports(viewports).scissors(scissors);
+    let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
+        .depth_clamp_enable(false)
+        .rasterizer_discard_enable(false)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .line_width(1.0)
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::CLOCKWISE)
+        .depth_bias_enable(false);
+    let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
+        .sample_shading_enable(false)
+        .rasterization_samples(vk::SampleCountFlags::_1);
+    let attachment = vk::PipelineColorBlendAttachmentState::builder()
+        .color_write_mask(vk::ColorComponentFlags::all())
+        .blend_enable(true)
+        .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .color_blend_op(vk::BlendOp::ADD)
+        .src_alpha_blend_factor(vk::BlendFactor::ONE)
+        .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+        .alpha_blend_op(vk::BlendOp::ADD);
+    let attachments = &[attachment];
+    let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+        .logic_op_enable(false)
+        .logic_op(vk::LogicOp::COPY)
+        .attachments(attachments)
+        .blend_constants([0.0, 0.0, 0.0, 0.0]);
+    let dynamic_states = &[vk::DynamicState::VIEWPORT, vk::DynamicState::LINE_WIDTH];
+    let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(dynamic_states);
+
+    let layout_info = vk::PipelineLayoutCreateInfo::builder();
+    data.pipeline_layout = device.create_pipeline_layout(&layout_info, None)?;
+
+    let stages = &[vert_stage, frag_stage];
+    let info = vk::GraphicsPipelineCreateInfo::builder()
+        .stages(stages)
+        .vertex_input_state(&vertex_input_state)
+        .input_assembly_state(&input_assembly_state)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization_state)
+        .multisample_state(&multisample_state)
+        .color_blend_state(&color_blend_state)
+        .layout(data.pipeline_layout)
+        .render_pass(data.render_pass)
+    .subpass(0);
+    data.pipeline = device.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None)?.0;
+    
+    device.destroy_shader_module(vert_shader_module, None);
+    device.destroy_shader_module(frag_shader_module, None);
+    Ok(())
+}
+
+unsafe fn create_shader_module(device: &Device, bytecode: &[u8],) -> Result<ShaderModule> {
+    let bytecode = Vec::from(bytecode);
+    let (prefix, code, suffix) = bytecode.align_to::<u32>();
+    if !prefix.is_empty() || !suffix.is_empty() {
+        return Err(anyhow!("Shader bytecode is not properly aligned."));
+    }
+    let info = vk::ShaderModuleCreateInfo::builder().code_size(bytecode.len()).code(code);
+    Ok(device.create_shader_module(&info, None)?)
+}
+
+pub unsafe fn create_render_pass(instance: &Instance, device: &Device, data: &mut AppData) -> Result<()> {
+    let color_attachment = vk::AttachmentDescription::builder()
+        .format(data.swapchain_format).samples(vk::SampleCountFlags::_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR).store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE).stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED).final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+
+    // Subpasses
+    let color_attachment_ref = vk::AttachmentReference::builder().attachment(0).layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+
+    let color_attachments = &[color_attachment_ref];
+    let subpass = vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(color_attachments);
+    let dependency = vk::SubpassDependency::builder()
+        .src_subpass(vk::SUBPASS_EXTERNAL)
+        .dst_subpass(0)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::empty())
+        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+
+    // Create
+    let attachments = &[color_attachment];
+    let subpasses = &[subpass];
+    let dependencies = &[dependency];
+    let info = vk::RenderPassCreateInfo::builder()
+        .attachments(attachments)
+        .subpasses(subpasses)
+        .dependencies(dependencies);
+    data.render_pass = device.create_render_pass(&info, None)?;
+
+
+    Ok(())
+}
+
+/// Frambebuffer helpers
+pub unsafe fn create_framebuffers(device: &Device, data: &mut AppData) -> Result<()> {
+    data.framebuffers = data.swapchain_image_views.iter()
+        .map(|i| {
+            let attachments = &[*i];
+            let create_info = vk::FramebufferCreateInfo::builder()
+                .render_pass(data.render_pass)
+                .attachments(attachments)
+                .width(data.swapchain_extent.width)
+                .height(data.swapchain_extent.height)
+                .layers(1);
+            device.create_framebuffer(&create_info, None)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(())
+}
+
+/// Commandbuffer helpers
+pub unsafe fn create_command_pool(instance: &Instance, device: &Device, data: &mut AppData) -> Result<()> {
+    let indices = QueueFamilyIndices::get(instance, data, data.physical_device)?;
+    let info = vk::CommandPoolCreateInfo::builder()
+        .flags(vk::CommandPoolCreateFlags::empty())
+        .queue_family_index(indices.graphics);
+        data.command_pool = device.create_command_pool(&info, None)?;
+    Ok(())
+}
+
+pub unsafe fn create_command_buffers(device: &Device, data: &mut AppData) -> Result<()> {
+    let allocate_info = vk::CommandBufferAllocateInfo::builder()
+        .command_pool(data.command_pool)
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_buffer_count(data.framebuffers.len() as u32);
+    data.command_buffers = device.allocate_command_buffers(&allocate_info)?;
+
+    for (i, command_buffer) in data.command_buffers.iter().enumerate() {
+        let inheritance = vk::CommandBufferInheritanceInfo::builder();
+    
+        let inherit_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::empty()) // Optional.
+            .inheritance_info(&inheritance);             // Optional.
+    
+        let render_area = vk::Rect2D::builder().offset(vk::Offset2D::default()).extent(data.swapchain_extent);
+        let color_clear_value = vk::ClearValue {
+            color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 1.0] },
+        };
+        let clear_values = &[color_clear_value];
+        let render_info = vk::RenderPassBeginInfo::builder()
+            .render_pass(data.render_pass)
+            .framebuffer(data.framebuffers[i])
+            .render_area(render_area)
+            .clear_values(clear_values);
+        
+        // render pass!!
+        device.begin_command_buffer(*command_buffer, &inherit_info)?;
+        device.cmd_begin_render_pass(*command_buffer, &render_info, vk::SubpassContents::INLINE);
+        device.cmd_bind_pipeline(*command_buffer, vk::PipelineBindPoint::GRAPHICS, data.pipeline);
+        device.cmd_draw(*command_buffer, 3, 1, 0, 0);
+        device.cmd_end_render_pass(*command_buffer);  // device.cmd_begin_render_pass
+        device.end_command_buffer(*command_buffer)?;  // device.begin_command_buffer
+    }
+    Ok(())
+}
+
+pub unsafe fn create_sync_objects(device: &Device, data: &mut AppData) -> Result<()> {
+    let semaphore_info = vk::SemaphoreCreateInfo::builder();
+    let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+    for _ in 0..MAX_FRAMES_IN_FLIGHT {
+        data.image_available_semaphores
+            .push(device.create_semaphore(&semaphore_info, None)?);
+        data.render_finished_semaphores
+            .push(device.create_semaphore(&semaphore_info, None)?);
+        data.in_flight_fences.push(device.create_fence(&fence_info, None)?);
+    }
+    data.images_in_flight = data.swapchain_images.iter().map(|_| vk::Fence::null()).collect();
     Ok(())
 }

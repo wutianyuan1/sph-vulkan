@@ -14,6 +14,7 @@ use crate::appdata::AppData;
 pub struct Vertex {
     pub pos: glm::Vec3,
     pub color: glm::Vec3,
+    pub normal: glm::Vec3,
 }
 
 impl PartialEq for Vertex {
@@ -32,12 +33,15 @@ impl Hash for Vertex {
         self.color[0].to_bits().hash(state);
         self.color[1].to_bits().hash(state);
         self.color[2].to_bits().hash(state);
+        self.normal[0].to_bits().hash(state);
+        self.normal[1].to_bits().hash(state);
+        self.normal[2].to_bits().hash(state);
     }
 }
 
 impl Vertex {
-    pub fn new(pos: glm::Vec3, color: glm::Vec3) -> Self { 
-        Self { pos, color } 
+    pub fn new(pos: glm::Vec3, color: glm::Vec3, normal: glm::Vec3) -> Self { 
+        Self { pos, color, normal } 
     }
 
     pub fn binding_description() -> vk::VertexInputBindingDescription {
@@ -48,12 +52,14 @@ impl Vertex {
             .build()
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
         let pos = vk::VertexInputAttributeDescription::builder()
             .binding(0).location(0).format(vk::Format::R32G32B32_SFLOAT).offset(0).build();
         let color = vk::VertexInputAttributeDescription::builder()
             .binding(0).location(1).format(vk::Format::R32G32B32_SFLOAT).offset(size_of::<glm::Vec3>() as u32).build();
-        [pos, color]
+        let normal = vk::VertexInputAttributeDescription::builder()
+            .binding(0).location(2).format(vk::Format::R32G32B32_SFLOAT).offset(2 * size_of::<glm::Vec3>() as u32).build();
+        [pos, color, normal]
     }
 }
 
@@ -65,17 +71,24 @@ pub fn load_model(model_path: String, data: &mut AppData) -> Result<()> {
         &tobj::LoadOptions { triangulate: true, ..Default::default() },
         |_| Ok(Default::default()),
     )?;
+    
+    // load positions and normals
     for model in &models {
         for index in &model.mesh.indices {
             let pos_offset = (3 * index) as usize;
+            let normal_offset = (3 * index) as usize;
             let tex_coord_offset = (2 * index) as usize;
+            if normal_offset >= model.mesh.normals.len() {
+                continue;
+            }
             let vertex = Vertex {
                 pos: glm::vec3(model.mesh.positions[pos_offset],
-                model.mesh.positions[pos_offset + 1],
-                model.mesh.positions[pos_offset + 2]),
-                color: glm::vec3(*index as f32 / model.mesh.indices.len() as f32, 
-                    *index as f32 / model.mesh.indices.len() as f32, 
-                    *index as f32 / model.mesh.indices.len() as f32),
+                    model.mesh.positions[pos_offset + 1],
+                    model.mesh.positions[pos_offset + 2]),
+                color: glm::vec3(1.0, 1.0, 1.0),
+                normal: glm::vec3(model.mesh.normals[normal_offset],
+                    model.mesh.normals[normal_offset + 1],
+                    model.mesh.normals[normal_offset + 2],)
             };
             if let Some(index) = unique_vertices.get(&vertex) {
                 data.indices.push(*index as u32);
@@ -87,5 +100,20 @@ pub fn load_model(model_path: String, data: &mut AppData) -> Result<()> {
             }
         }
     }
+
+    // normalize to [-1, 1]
+    let mut max_val = f32::MIN;
+    let mut min_val = f32::MAX;
+    data.vertices.iter().for_each(|v| {
+        max_val = max_val.max(v.pos.max());
+        min_val = min_val.min(v.pos.min());
+    });
+    for v in &mut data.vertices {
+        let pos = &mut v.pos;
+        pos.x /= max_val - min_val;
+        pos.y /= max_val - min_val;
+        pos.z /= max_val - min_val;
+    };
+
     Ok(())
 }

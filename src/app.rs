@@ -12,9 +12,9 @@ use crate::callback::debug_callback;
 use crate::config::{VALIDATION_ENABLED, VALIDATION_LAYER, MAX_FRAMES_IN_FLIGHT};
 use crate::utils::*;
 
-/// Our Vulkan app.
+/// The application.
 #[derive(Clone, Debug)]
-pub struct App {
+pub struct App{
     entry: Entry,
     instance: Instance,
     data: AppData,
@@ -25,14 +25,22 @@ pub struct App {
 
 impl App {
     /// Creates the app instance.
-    pub unsafe fn create(window: &Window) -> Result<Self> {
+    pub unsafe fn create(window: &Window, vshader_path: String, fshader_path: String) -> Result<Self> {
+        // loader and entry 
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
+        // data
         let mut data = AppData::default();
+        data.vshader_path = vshader_path;
+        data.fshader_path = fshader_path;
+        // instance
         let instance = create_instance(window, &entry, &mut data)?;
+        // window surface
         data.surface = vk_window::create_surface(&instance, window)?;
+        // device
         pick_physical_device(&instance, &mut data)?;
         let device = create_logical_device(&instance, &mut data)?;
+        // other setups
         create_swapchain(window, &instance, &device, &mut data)?;
         create_swapchain_image_views(&device, &mut data)?;
         create_render_pass(&instance, &device, &mut data)?;

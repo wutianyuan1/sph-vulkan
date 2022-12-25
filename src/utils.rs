@@ -1,6 +1,10 @@
-use anyhow::{anyhow, Result, Ok};
+use anyhow::{anyhow, Result};
 use log::*;
+use shaderc::CompilationArtifact;
+use std::fs::File;
+use std::path::Path;
 use std::collections::HashSet;
+use std::io::Read;
 use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension, ShaderModule};
 use vulkanalia::{prelude::v1_0::*, vk::PhysicalDevice};
 use thiserror::Error;
@@ -236,10 +240,10 @@ pub unsafe fn create_swapchain_image_views(device: &Device, data: &mut AppData) 
 
 /// Pipeline helpers
 pub unsafe fn create_pipeline(device: &Device, data: &mut AppData) -> Result<()> {
-    let vshader = include_bytes!("../shaders/vert.spv");
-    let fshader = include_bytes!("../shaders/frag.spv");
-    let vert_shader_module = create_shader_module(device, &vshader[..])?;
-    let frag_shader_module = create_shader_module(device, &fshader[..])?;
+    let vshader = compile_shader(&data.vshader_path, shaderc::ShaderKind::Vertex)?;
+    let fshader = compile_shader(&data.fshader_path, shaderc::ShaderKind::Fragment)?;
+    let vert_shader_module = create_shader_module(device, &vshader.as_binary_u8()[..])?;
+    let frag_shader_module = create_shader_module(device, &fshader.as_binary_u8()[..])?;
     let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
         .stage(vk::ShaderStageFlags::VERTEX)
         .module(vert_shader_module)
@@ -308,6 +312,24 @@ pub unsafe fn create_pipeline(device: &Device, data: &mut AppData) -> Result<()>
     device.destroy_shader_module(frag_shader_module, None);
     Ok(())
 }
+
+fn compile_shader(shader_path: &String, shader_kind: shaderc::ShaderKind) -> Result<CompilationArtifact>{
+    let mut shader_file = File::open(Path::new(shader_path))?;
+    let mut shader_buffer = String::new();
+    shader_file.read_to_string(&mut shader_buffer)?;
+    let compiler = shaderc::Compiler::new().unwrap();
+    let options = shaderc::CompileOptions::new().unwrap();
+    let binary_result = compiler.compile_into_spirv(&shader_buffer, shader_kind, &shader_path, "main", Some(&options));
+    let binary_result = match binary_result {
+        Ok(binary_result) => binary_result,
+        Err(e) => {
+            let error_lines = e.to_string().split('\n').for_each(|line| println!("{}", line));
+            panic!("Compilation Error!");
+        }
+    };
+    Ok(binary_result)
+}
+
 
 unsafe fn create_shader_module(device: &Device, bytecode: &[u8],) -> Result<ShaderModule> {
     let bytecode = Vec::from(bytecode);

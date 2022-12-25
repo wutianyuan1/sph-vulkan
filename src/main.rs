@@ -26,7 +26,7 @@ fn main() -> Result<()> {
         .build(&event_loop)?;
 
     // App
-    let mut app = unsafe { App::create(&window)? };
+    let mut app = unsafe { App::create(&window, "shaders/shader.vert".to_string(), "shaders/shader.frag".to_string())? };
     let mut destroying = false;
     let mut minimized = false;
     event_loop.run(move |event, _, control_flow| {

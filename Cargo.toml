@@ -16,3 +16,4 @@ thiserror = "1"
 tobj = { version = "3", features = ["log"] }
 vulkanalia = { version = "=0.16.0", features = ["libloading", "window", "provisional"] }
 winit = "0.27"
+shaderc = "0.8.1"

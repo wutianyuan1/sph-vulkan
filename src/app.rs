@@ -30,7 +30,8 @@ pub struct App{
 
 impl App {
     /// Creates the app instance.
-    pub unsafe fn create(window: &Window, vshader_path: String, fshader_path: String) -> Result<Self> {
+    pub unsafe fn create(window: &Window, model_path: String,
+            vshader_path: String, fshader_path: String) -> Result<Self> {
         // loader and entry 
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
@@ -54,7 +55,7 @@ impl App {
         create_command_pool(&instance, &device, &mut data)?;
         create_depth_objects(&instance, &device, &mut data)?;
         create_framebuffers(&device, &mut data)?;
-        load_model(&mut data)?;
+        load_model(model_path, &mut data)?;
         create_vertex_buffer(&instance, &device, &mut data)?;
         create_index_buffer(&instance, &device, &mut data)?;
         create_uniform_buffers(&instance, &device, &mut data)?;

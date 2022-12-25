@@ -467,12 +467,12 @@ pub unsafe fn create_command_buffers(device: &Device, data: &mut AppData) -> Res
         let inheritance = vk::CommandBufferInheritanceInfo::builder();
     
         let inherit_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::empty()) // Optional.
-            .inheritance_info(&inheritance);             // Optional.
+            .flags(vk::CommandBufferUsageFlags::empty())
+            .inheritance_info(&inheritance);
     
         let render_area = vk::Rect2D::builder().offset(vk::Offset2D::default()).extent(data.swapchain_extent);
         let color_clear_value = vk::ClearValue {
-            color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 1.0] },
+            color: vk::ClearColorValue { float32: [0.9, 0.9, 0.9, 1.0] },
         };
         let depth_clear_value = vk::ClearValue {
             depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 },

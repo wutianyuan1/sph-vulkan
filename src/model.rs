@@ -57,8 +57,8 @@ impl Vertex {
     }
 }
 
-pub fn load_model(data: &mut AppData) -> Result<()> {
-    let mut reader = BufReader::new(File::open("viking_room.obj")?);
+pub fn load_model(model_path: String, data: &mut AppData) -> Result<()> {
+    let mut reader = BufReader::new(File::open(model_path)?);
     let mut unique_vertices = HashMap::new();
     let (models, _) = tobj::load_obj_buf(
         &mut reader,
@@ -73,7 +73,9 @@ pub fn load_model(data: &mut AppData) -> Result<()> {
                 pos: glm::vec3(model.mesh.positions[pos_offset],
                 model.mesh.positions[pos_offset + 1],
                 model.mesh.positions[pos_offset + 2]),
-                color: glm::vec3(1.0, 1.0, 1.0),
+                color: glm::vec3(*index as f32 / model.mesh.indices.len() as f32, 
+                    *index as f32 / model.mesh.indices.len() as f32, 
+                    *index as f32 / model.mesh.indices.len() as f32),
             };
             if let Some(index) = unique_vertices.get(&vertex) {
                 data.indices.push(*index as u32);

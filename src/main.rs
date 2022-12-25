@@ -4,6 +4,8 @@ pub mod app;
 pub mod appdata;
 pub mod config;
 pub mod utils;
+pub mod camera;
+pub mod model;
 
 use anyhow::Result;
 use winit::dpi::LogicalSize;
@@ -46,7 +48,6 @@ fn main() -> Result<()> {
             // Resize the window
             Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
                 if size.width == 0 || size.height == 0 {
-                    println!("min!");
                     minimized = true;
                 } else {
                     minimized = false;

@@ -1,3 +1,4 @@
 /target
 *.spv
+*.obj
 .DS_Store

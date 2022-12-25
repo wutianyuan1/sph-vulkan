@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Instant;
 use anyhow::{anyhow, Result};
 use winit::window::Window;
 use vulkanalia::window as vk_window;
@@ -11,6 +12,8 @@ use crate::appdata::AppData;
 use crate::callback::debug_callback;
 use crate::config::{VALIDATION_ENABLED, VALIDATION_LAYER, MAX_FRAMES_IN_FLIGHT};
 use crate::utils::*;
+use crate::camera::Camera;
+use crate::model::load_model;
 
 /// The application.
 #[derive(Clone, Debug)]
@@ -21,6 +24,8 @@ pub struct App{
     device: Device,
     frame: usize,
     resized: bool,
+    camera: Camera,
+    timer: Instant,
 }
 
 impl App {
@@ -44,16 +49,25 @@ impl App {
         create_swapchain(window, &instance, &device, &mut data)?;
         create_swapchain_image_views(&device, &mut data)?;
         create_render_pass(&instance, &device, &mut data)?;
+        create_descriptor_set_layout(&device, &mut data)?;
         create_pipeline(&device, &mut data)?;
-        create_framebuffers(&device, &mut data)?;
         create_command_pool(&instance, &device, &mut data)?;
+        create_depth_objects(&instance, &device, &mut data)?;
+        create_framebuffers(&device, &mut data)?;
+        load_model(&mut data)?;
+        create_vertex_buffer(&instance, &device, &mut data)?;
+        create_index_buffer(&instance, &device, &mut data)?;
+        create_uniform_buffers(&instance, &device, &mut data)?;
+        create_descriptor_pool(&device, &mut data)?;
+        create_descriptor_sets(&device, &mut data)?;
         create_command_buffers(&device, &mut data)?;
         create_sync_objects(&device, &mut data)?;
-        Ok(Self { entry, instance, data, device, frame: 0, resized: false })
+        Ok(Self { entry, instance, data, device, frame: 0, resized: false, camera: Camera::new(), timer: Instant::now() })
     }
 
     /// Renders a frame for the app.
     pub unsafe fn render(&mut self, window: &Window) -> Result<()> {
+        let t1 = self.timer.elapsed().as_secs_f32();
         // wait and reset fences for GPU-CPU sync
         let in_flight_fence = self.data.in_flight_fences[self.frame];
         let result = self.device.acquire_next_image_khr(
@@ -70,6 +84,7 @@ impl App {
             self.device.wait_for_fences(&[image_in_flight], true, u64::max_value())?;
         }
         self.data.images_in_flight[image_index] = in_flight_fence;
+        self.camera.update_viewport(image_index, t1, &self.data, &self.device)?;
     
         // get image from swapchain, and get ready to submit it to present queue
         let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
@@ -99,6 +114,7 @@ impl App {
             return Err(anyhow!(e));
         }
         self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
+        let t2 = self.timer.elapsed().as_secs_f32();
         Ok(())
     }
 
@@ -106,6 +122,11 @@ impl App {
     #[rustfmt::skip]
     pub unsafe fn destroy(&mut self) {
         self.destroy_swapchain();
+        self.device.destroy_descriptor_set_layout(self.data.descriptor_set_layout, None);
+        self.device.destroy_buffer(self.data.index_buffer, None);
+        self.device.free_memory(self.data.index_buffer_memory, None);
+        self.device.destroy_buffer(self.data.vertex_buffer, None);
+        self.device.free_memory(self.data.vertex_buffer_memory, None);
         self.data.in_flight_fences.iter().for_each(|f| self.device.destroy_fence(*f, None));
         self.data.render_finished_semaphores.iter().for_each(|s| self.device.destroy_semaphore(*s, None));
         self.data.image_available_semaphores.iter().for_each(|s| self.device.destroy_semaphore(*s, None));
@@ -119,6 +140,12 @@ impl App {
     }
 
     unsafe fn destroy_swapchain(&mut self) {
+        self.device.destroy_image_view(self.data.depth_image_view, None);
+        self.device.free_memory(self.data.depth_image_memory, None);
+        self.device.destroy_image(self.data.depth_image, None);
+        self.device.destroy_descriptor_pool(self.data.descriptor_pool, None);
+        self.data.uniform_buffers.iter().for_each(|b| self.device.destroy_buffer(*b, None));
+        self.data.uniform_buffers_memory.iter().for_each(|m| self.device.free_memory(*m, None));
         self.data.framebuffers.iter().for_each(|f| self.device.destroy_framebuffer(*f, None));
         self.device.free_command_buffers(self.data.command_pool, &self.data.command_buffers);
         self.device.destroy_pipeline(self.data.pipeline, None);
@@ -135,11 +162,15 @@ impl App {
         create_swapchain_image_views(&self.device, &mut self.data)?;
         create_render_pass(&self.instance, &self.device, &mut self.data)?;
         create_pipeline(&self.device, &mut self.data)?;
+        create_depth_objects(&self.instance, &self.device, &mut self.data)?;
         create_framebuffers(&self.device, &mut self.data)?;
+        create_uniform_buffers(&self.instance, &self.device, &mut self.data)?;
+        create_descriptor_pool(&self.device, &mut self.data)?;
+        create_descriptor_sets(&self.device, &mut self.data)?;
         create_command_buffers(&self.device, &mut self.data)?;
         self.data.images_in_flight.resize(self.data.swapchain_images.len(), vk::Fence::null());
         Ok(())
-    }    
+    }
 
     /// accessors & modifiers
     pub fn device(&mut self) -> &Device {

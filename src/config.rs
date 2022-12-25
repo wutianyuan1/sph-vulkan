@@ -9,7 +9,7 @@ pub const VALIDATION_LAYER: vk::ExtensionName = vk::ExtensionName::from_bytes(b"
 #[cfg(target_os = "macos")]
 pub const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[
     vk::KHR_SWAPCHAIN_EXTENSION.name, 
-    vk::KHR_PORTABILITY_SUBSET_EXTENSION.name,  // this is contained in provisional..
+    vk::KHR_PORTABILITY_SUBSET_EXTENSION.name,  // this is a provisional feature...
 ];
 
 #[cfg(not(target_os = "macos"))]

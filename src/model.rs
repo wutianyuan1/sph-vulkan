@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::io::BufReader;
 use std::fs::File;
 use std::mem::size_of;
-use vulkanalia::{prelude::v1_0::*};
+use vulkanalia::prelude::v1_0::*;
 use nalgebra_glm as glm;
 use anyhow::Result;
 

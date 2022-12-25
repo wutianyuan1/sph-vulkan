@@ -9,7 +9,7 @@ use anyhow::{anyhow, Result};
 use log::*;
 use shaderc::CompilationArtifact;
 use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension, ShaderModule, PhysicalDevice};
-use vulkanalia::{prelude::v1_0::*};
+use vulkanalia::prelude::v1_0::*;
 use thiserror::Error;
 use winit::window::Window;
 

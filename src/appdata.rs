@@ -1,5 +1,5 @@
 use vulkanalia::prelude::v1_0::*;
-use crate::model::Vertex;
+use crate::model::Object;
 
 /// The Vulkan handles and associated properties used by our Vulkan app.
 #[derive(Clone, Debug, Default)]
@@ -27,10 +27,7 @@ pub struct AppData {
     pub images_in_flight: Vec<vk::Fence>,
     pub vshader_path: String,
     pub fshader_path: String,
-    pub vertex_buffer: vk::Buffer,
-    pub vertex_buffer_memory: vk::DeviceMemory,
-    pub index_buffer: vk::Buffer,
-    pub index_buffer_memory: vk::DeviceMemory,
+    pub objects: Vec<Object>,
     pub uniform_buffers: Vec<vk::Buffer>,
     pub uniform_buffers_memory: Vec<vk::DeviceMemory>,
     pub descriptor_pool: vk::DescriptorPool,
@@ -38,6 +35,4 @@ pub struct AppData {
     pub depth_image: vk::Image,
     pub depth_image_memory: vk::DeviceMemory,
     pub depth_image_view: vk::ImageView,
-    pub vertices: Vec<Vertex>,
-    pub indices: Vec<u32>,
 }

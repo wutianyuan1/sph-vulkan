@@ -8,14 +8,41 @@ use nalgebra_glm as glm;
 use anyhow::Result;
 
 use crate::appdata::AppData;
+use crate::utils::{create_vertex_buffer, create_index_buffer};
 
 #[repr(C)]
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, Default)]
 pub struct Vertex {
     pub pos: glm::Vec3,
     pub color: glm::Vec3,
     pub normal: glm::Vec3,
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct Object {
+    pub vertex_buffer: vk::Buffer,
+    pub vertex_buffer_memory: vk::DeviceMemory,
+    pub index_buffer: vk::Buffer,
+    pub index_buffer_memory: vk::DeviceMemory,
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
+}
+
+impl Object {
+    pub unsafe fn new(model_path: String, instance: &Instance, device: &Device, data: &mut AppData) -> Result<Self> {
+        let mut obj = Object::default();
+        load_model(model_path, &mut obj)?;
+        create_vertex_buffer(&instance, &device, data, &mut obj)?;
+        create_index_buffer(&instance, &device, data, &mut obj)?;
+        Ok(obj)
+    }
+
+    pub fn move_to(position: glm::Vec3) -> Result<()>{
+        
+        Ok(())
+    }
+}
+
 
 impl PartialEq for Vertex {
     fn eq(&self, other: &Self) -> bool {
@@ -63,7 +90,7 @@ impl Vertex {
     }
 }
 
-pub fn load_model(model_path: String, data: &mut AppData) -> Result<()> {
+pub fn load_model(model_path: String, obj: &mut Object) -> Result<()> {
     let mut reader = BufReader::new(File::open(model_path)?);
     let mut unique_vertices = HashMap::new();
     let (models, _) = tobj::load_obj_buf(
@@ -91,12 +118,12 @@ pub fn load_model(model_path: String, data: &mut AppData) -> Result<()> {
                     model.mesh.normals[normal_offset + 2],)
             };
             if let Some(index) = unique_vertices.get(&vertex) {
-                data.indices.push(*index as u32);
+                obj.indices.push(*index as u32);
             } else {
-                let index = data.vertices.len();
+                let index = obj.vertices.len();
                 unique_vertices.insert(vertex, index);
-                data.vertices.push(vertex);
-                data.indices.push(index as u32);
+                obj.vertices.push(vertex);
+                obj.indices.push(index as u32);
             }
         }
     }
@@ -104,11 +131,11 @@ pub fn load_model(model_path: String, data: &mut AppData) -> Result<()> {
     // normalize to [-1, 1]
     let mut max_val = f32::MIN;
     let mut min_val = f32::MAX;
-    data.vertices.iter().for_each(|v| {
+    obj.vertices.iter().for_each(|v| {
         max_val = max_val.max(v.pos.max());
         min_val = min_val.min(v.pos.min());
     });
-    for v in &mut data.vertices {
+    for v in &mut obj.vertices {
         let pos = &mut v.pos;
         pos.x /= max_val - min_val;
         pos.y /= max_val - min_val;
@@ -117,3 +144,4 @@ pub fn load_model(model_path: String, data: &mut AppData) -> Result<()> {
 
     Ok(())
 }
+

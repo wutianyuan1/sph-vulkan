@@ -17,8 +17,7 @@ pub struct Camera {
 	pub ambient_strength: f32,
     pub light_pos: glm::Vec3,
     pub specular_strength: f32,
-    pub view_pos: glm::Vec3,
-    
+    pub view_pos: glm::Vec3, 
 }
 
 impl Camera {

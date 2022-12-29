@@ -13,7 +13,7 @@ use crate::callback::debug_callback;
 use crate::config::{VALIDATION_ENABLED, VALIDATION_LAYER, MAX_FRAMES_IN_FLIGHT};
 use crate::utils::*;
 use crate::camera::Camera;
-use crate::model::load_model;
+use crate::model::Object;
 
 /// The application.
 #[derive(Clone, Debug)]
@@ -30,7 +30,7 @@ pub struct App{
 
 impl App {
     /// Creates the app instance.
-    pub unsafe fn create(window: &Window, model_path: String,
+    pub unsafe fn create(window: &Window, model_paths: Vec<String>,
             vshader_path: String, fshader_path: String) -> Result<Self> {
         // loader and entry 
         let loader = LibloadingLoader::new(LIBRARY)?;
@@ -55,9 +55,12 @@ impl App {
         create_command_pool(&instance, &device, &mut data)?;
         create_depth_objects(&instance, &device, &mut data)?;
         create_framebuffers(&device, &mut data)?;
-        load_model(model_path, &mut data)?;
-        create_vertex_buffer(&instance, &device, &mut data)?;
-        create_index_buffer(&instance, &device, &mut data)?;
+        // load models for each object to render
+        for model_path in model_paths {
+            let obj = Object::new(model_path, &instance, &device, &mut data)?;
+            data.objects.push(obj);
+        }
+        // uniform and command buffers
         create_uniform_buffers(&instance, &device, &mut data)?;
         create_descriptor_pool(&device, &mut data)?;
         create_descriptor_sets(&device, &mut data)?;
@@ -124,10 +127,12 @@ impl App {
     pub unsafe fn destroy(&mut self) {
         self.destroy_swapchain();
         self.device.destroy_descriptor_set_layout(self.data.descriptor_set_layout, None);
-        self.device.destroy_buffer(self.data.index_buffer, None);
-        self.device.free_memory(self.data.index_buffer_memory, None);
-        self.device.destroy_buffer(self.data.vertex_buffer, None);
-        self.device.free_memory(self.data.vertex_buffer_memory, None);
+        self.data.objects.iter().for_each(|obj| {
+            self.device.destroy_buffer(obj.index_buffer, None);
+            self.device.free_memory(obj.index_buffer_memory, None);
+            self.device.destroy_buffer(obj.vertex_buffer, None);
+            self.device.free_memory(obj.vertex_buffer_memory, None);
+        });
         self.data.in_flight_fences.iter().for_each(|f| self.device.destroy_fence(*f, None));
         self.data.render_finished_semaphores.iter().for_each(|s| self.device.destroy_semaphore(*s, None));
         self.data.image_available_semaphores.iter().for_each(|s| self.device.destroy_semaphore(*s, None));

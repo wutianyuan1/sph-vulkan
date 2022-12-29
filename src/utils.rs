@@ -17,7 +17,7 @@ use crate::config::*;
 use crate::appdata::AppData;
 use crate::config::DEVICE_EXTENSIONS;
 use crate::camera::Camera;
-use crate::model::Vertex;
+use crate::model::{Vertex, Object};
 
 
 /// Structures
@@ -472,7 +472,7 @@ pub unsafe fn create_command_buffers(device: &Device, data: &mut AppData) -> Res
     
         let render_area = vk::Rect2D::builder().offset(vk::Offset2D::default()).extent(data.swapchain_extent);
         let color_clear_value = vk::ClearValue {
-            color: vk::ClearColorValue { float32: [0.9, 0.9, 0.9, 1.0] },
+            color: vk::ClearColorValue { float32: [0.2, 0.2, 0.2, 1.0] },
         };
         let depth_clear_value = vk::ClearValue {
             depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 },
@@ -488,11 +488,13 @@ pub unsafe fn create_command_buffers(device: &Device, data: &mut AppData) -> Res
         device.begin_command_buffer(*command_buffer, &inherit_info)?;
         device.cmd_begin_render_pass(*command_buffer, &render_info, vk::SubpassContents::INLINE);
         device.cmd_bind_pipeline(*command_buffer, vk::PipelineBindPoint::GRAPHICS, data.pipeline);
-        device.cmd_bind_vertex_buffers(*command_buffer, 0, &[data.vertex_buffer], &[0]);
-        device.cmd_bind_index_buffer(*command_buffer, data.index_buffer, 0, vk::IndexType::UINT32);
         device.cmd_bind_descriptor_sets(*command_buffer, vk::PipelineBindPoint::GRAPHICS,
             data.pipeline_layout, 0, &[data.descriptor_sets[i]], &[]);
-        device.cmd_draw_indexed(*command_buffer, data.indices.len() as u32, 1, 0, 0, 0);
+        for obj in &data.objects {
+            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[obj.vertex_buffer], &[0]);
+            device.cmd_bind_index_buffer(*command_buffer, obj.index_buffer, 0, vk::IndexType::UINT32);
+            device.cmd_draw_indexed(*command_buffer, obj.indices.len() as u32, 1, 0, 0, 0);
+        }
         device.cmd_end_render_pass(*command_buffer);  // device.cmd_begin_render_pass
         device.end_command_buffer(*command_buffer)?;  // device.begin_command_buffer
     }
@@ -532,8 +534,9 @@ unsafe fn create_buffer(instance: &Instance, device: &Device, data: &AppData,
     Ok((buffer, buffer_memory))
 }
 
-pub unsafe fn create_index_buffer(instance: &Instance, device: &Device, data: &mut AppData) -> Result<()> {
-    let size = (size_of::<u32>() * data.indices.len()) as u64;
+pub unsafe fn create_index_buffer(instance: &Instance, device: &Device, data: &mut AppData, obj: &mut Object)
+ -> Result<()> {
+    let size = (size_of::<u32>() * obj.indices.len()) as u64;
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
         instance, device, data, size,
@@ -542,7 +545,7 @@ pub unsafe fn create_index_buffer(instance: &Instance, device: &Device, data: &m
     )?;
 
     let memory = device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
-    memcpy(data.indices.as_ptr(), memory.cast(), data.indices.len());
+    memcpy(obj.indices.as_ptr(), memory.cast(), obj.indices.len());
     device.unmap_memory(staging_buffer_memory);
 
     let (index_buffer, index_buffer_memory) = create_buffer(
@@ -551,8 +554,8 @@ pub unsafe fn create_index_buffer(instance: &Instance, device: &Device, data: &m
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
     )?;
 
-    data.index_buffer = index_buffer;
-    data.index_buffer_memory = index_buffer_memory;
+    obj.index_buffer = index_buffer;
+    obj.index_buffer_memory = index_buffer_memory;
 
     copy_buffer(device, data, staging_buffer, index_buffer, size)?;
 
@@ -561,8 +564,9 @@ pub unsafe fn create_index_buffer(instance: &Instance, device: &Device, data: &m
     Ok(())
 }
 
-pub unsafe fn create_vertex_buffer(instance: &Instance, device: &Device, data: &mut AppData) -> Result<()> {
-    let size = (size_of::<Vertex>() * data.vertices.len()) as u64;
+pub unsafe fn create_vertex_buffer(instance: &Instance, device: &Device, data: &mut AppData, obj: &mut Object)
+ -> Result<()> {
+    let size = (size_of::<Vertex>() * obj.vertices.len()) as u64;
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
         instance, device, data, size,
@@ -571,7 +575,7 @@ pub unsafe fn create_vertex_buffer(instance: &Instance, device: &Device, data: &
     )?;
 
     let cpu_mem = device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
-    memcpy(data.vertices.as_ptr(), cpu_mem.cast(), data.vertices.len());
+    memcpy(obj.vertices.as_ptr(), cpu_mem.cast(), obj.vertices.len());
     device.unmap_memory(staging_buffer_memory);
 
     let (vertex_buffer, vertex_buffer_memory) = create_buffer(
@@ -584,8 +588,8 @@ pub unsafe fn create_vertex_buffer(instance: &Instance, device: &Device, data: &
     device.destroy_buffer(staging_buffer, None);
     device.free_memory(staging_buffer_memory, None);
 
-    data.vertex_buffer = vertex_buffer;
-    data.vertex_buffer_memory = vertex_buffer_memory;
+    obj.vertex_buffer = vertex_buffer;
+    obj.vertex_buffer_memory = vertex_buffer_memory;
     Ok(())
 }
 
@@ -812,7 +816,6 @@ unsafe fn transition_image_layout(device: &Device, data: &AppData, image: vk::Im
         &[] as &[vk::BufferMemoryBarrier],
         &[barrier],
     );
-
     end_single_time_commands(device, data, command_buffer)?;
 
     Ok(())

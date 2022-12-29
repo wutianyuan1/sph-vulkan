@@ -28,7 +28,8 @@ fn main() -> Result<()> {
         .build(&event_loop)?;
 
     // App
-    let mut app = unsafe { App::create(&window, "FinalBaseMesh.obj".to_string(),
+    let mut app = unsafe { App::create(&window, 
+        vec!["FinalBaseMesh.obj".to_string(),"Tree.obj".to_string()],
         "shaders/shader.vert".to_string(), "shaders/shader.frag".to_string())? };
     let mut destroying = false;
     let mut minimized = false;

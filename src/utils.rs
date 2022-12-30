@@ -16,7 +16,7 @@ use winit::window::Window;
 use crate::config::*;
 use crate::appdata::AppData;
 use crate::config::DEVICE_EXTENSIONS;
-use crate::camera::Camera;
+use crate::camera::UniformBufferObject;
 use crate::model::{Vertex, Object};
 
 
@@ -636,7 +636,7 @@ pub unsafe fn create_uniform_buffers(instance: &Instance, device: &Device, data:
     for _ in 0..data.swapchain_images.len() {
         let (uniform_buffer, uniform_buffer_memory) = create_buffer(
             instance, device, data,
-            size_of::<Camera>() as u64,
+            size_of::<UniformBufferObject>() as u64,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
         )?;
@@ -669,7 +669,7 @@ pub unsafe fn create_descriptor_sets(device: &Device, data: &mut AppData) -> Res
         let info = vk::DescriptorBufferInfo::builder()
             .buffer(data.uniform_buffers[i])
             .offset(0)
-            .range(size_of::<Camera>() as u64);
+            .range(size_of::<UniformBufferObject>() as u64);
         let buffer_info = &[info];
         let ubo_write = vk::WriteDescriptorSet::builder()
             .dst_set(data.descriptor_sets[i]).dst_binding(0).dst_array_element(0)

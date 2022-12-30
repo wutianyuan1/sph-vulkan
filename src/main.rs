@@ -12,6 +12,7 @@ use winit::dpi::LogicalSize;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
+use winit::dpi::PhysicalPosition;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
@@ -33,6 +34,8 @@ fn main() -> Result<()> {
         "shaders/shader.vert".to_string(), "shaders/shader.frag".to_string())? };
     let mut destroying = false;
     let mut minimized = false;
+    let mut last_mouse_pos = PhysicalPosition::<f64>::new(0.0f64, 0.0f64);
+    let mut drag = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
@@ -56,7 +59,21 @@ fn main() -> Result<()> {
                     app.resized(true);
                 }
             }
-    
+            // Mouse event
+            Event::WindowEvent { event: WindowEvent::CursorMoved { position, .. } , .. } => {
+                if drag {
+                    let x_diff = position.x - last_mouse_pos.x;
+                    let y_diff = position.y - last_mouse_pos.y;
+                    app.handle_mouse(x_diff as f32, y_diff as f32).unwrap();
+                }
+                last_mouse_pos = position;
+            }
+            Event::WindowEvent { event: WindowEvent::MouseInput { state, button, .. } , .. } => {
+                match state {
+                    winit::event::ElementState::Pressed => drag = true,
+                    winit::event::ElementState::Released => drag = false,
+                }
+            }
             _ => {}
         }
     });

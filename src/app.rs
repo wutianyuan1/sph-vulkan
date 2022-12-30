@@ -12,7 +12,7 @@ use crate::appdata::AppData;
 use crate::callback::debug_callback;
 use crate::config::{VALIDATION_ENABLED, VALIDATION_LAYER, MAX_FRAMES_IN_FLIGHT};
 use crate::utils::*;
-use crate::camera::Camera;
+use crate::camera::{UniformBufferObject, Camera};
 use crate::model::Object;
 
 /// The application.
@@ -24,6 +24,7 @@ pub struct App{
     device: Device,
     frame: usize,
     resized: bool,
+    ubo: UniformBufferObject,
     camera: Camera,
     timer: Instant,
 }
@@ -66,7 +67,8 @@ impl App {
         create_descriptor_sets(&device, &mut data)?;
         create_command_buffers(&device, &mut data)?;
         create_sync_objects(&device, &mut data)?;
-        Ok(Self { entry, instance, data, device, frame: 0, resized: false, camera: Camera::new(), timer: Instant::now() })
+        Ok(Self { entry, instance, data, device, frame: 0, resized: false, ubo: UniformBufferObject::new(),
+            timer: Instant::now(), camera: Camera::new(0.1, 0.2)? })
     }
 
     /// Renders a frame for the app.
@@ -88,7 +90,7 @@ impl App {
             self.device.wait_for_fences(&[image_in_flight], true, u64::max_value())?;
         }
         self.data.images_in_flight[image_index] = in_flight_fence;
-        self.camera.update_viewport(image_index, t1, &self.data, &self.device)?;
+        self.ubo.update(image_index, self.camera.get_view_matrix(), &self.data, &self.device)?;
     
         // get image from swapchain, and get ready to submit it to present queue
         let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
@@ -118,7 +120,6 @@ impl App {
             return Err(anyhow!(e));
         }
         self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
-        let t2 = self.timer.elapsed().as_secs_f32();
         Ok(())
     }
 
@@ -190,6 +191,11 @@ impl App {
     pub fn resized(&mut self, newval: bool) {
         self.resized = newval;
     }
+
+    pub fn handle_mouse(&mut self, x_diff: f32, y_diff: f32) -> Result<()> {
+        self.camera.handle_mouse(x_diff, y_diff)?;
+        Ok(())
+    }
 }
 
 unsafe fn create_instance(window: &Window, entry: &Entry, data: &mut AppData) -> Result<Instance> {
@@ -217,10 +223,11 @@ unsafe fn create_instance(window: &Window, entry: &Entry, data: &mut AppData) ->
     // Extensions
     let mut extensions = vk_window::get_required_instance_extensions(window).iter().map(|e| e.as_ptr()).collect::<Vec<_>>();
 
-    if cfg!(target_os = "macos") {
-        extensions.push(vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name.as_ptr());
-        extensions.push(ExtensionName::from_bytes(b"VK_KHR_get_physical_device_properties2").as_ptr());    
-    }
+    // if cfg!(target_os = "macos") {
+    let names = &[ExtensionName::from_bytes(b"VK_KHR_portability_enumeration"),
+        ExtensionName::from_bytes(b"VK_KHR_get_physical_device_properties2")];
+    names.iter().for_each(|name| extensions.push(name.as_ptr()));
+    // }
    
     if VALIDATION_ENABLED {
         extensions.push(vk::EXT_DEBUG_UTILS_EXTENSION.name.as_ptr());
